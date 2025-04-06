@@ -18,6 +18,8 @@
 package com.lcl.swiftlink.project.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.date.DateUnit;
+import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.lang.UUID;
 import cn.hutool.core.text.StrBuilder;
 import cn.hutool.core.util.ArrayUtil;
@@ -35,18 +37,17 @@ import com.lcl.swiftlink.project.common.enums.VailDateTypeEnum;
 import com.lcl.swiftlink.project.config.GotoDomainWhiteListConfiguration;
 import com.lcl.swiftlink.project.dao.entity.ShortLinkDO;
 import com.lcl.swiftlink.project.dao.entity.ShortLinkGotoDO;
+import com.lcl.swiftlink.project.dao.entity.SwiftLinkDO;
+import com.lcl.swiftlink.project.dao.entity.SwiftLinkJumpDO;
 import com.lcl.swiftlink.project.dao.mapper.ShortLinkGotoMapper;
 import com.lcl.swiftlink.project.dao.mapper.ShortLinkMapper;
+import com.lcl.swiftlink.project.dao.mapper.SwiftLinkJumpMapper;
 import com.lcl.swiftlink.project.dto.biz.ShortLinkStatsRecordDTO;
 import com.lcl.swiftlink.project.dto.req.ShortLinkBatchCreateReqDTO;
 import com.lcl.swiftlink.project.dto.req.ShortLinkCreateReqDTO;
 import com.lcl.swiftlink.project.dto.req.ShortLinkPageReqDTO;
 import com.lcl.swiftlink.project.dto.req.ShortLinkUpdateReqDTO;
-import com.lcl.swiftlink.project.dto.resp.ShortLinkBaseInfoRespDTO;
-import com.lcl.swiftlink.project.dto.resp.ShortLinkBatchCreateRespDTO;
-import com.lcl.swiftlink.project.dto.resp.ShortLinkCreateRespDTO;
-import com.lcl.swiftlink.project.dto.resp.ShortLinkGroupCountQueryRespDTO;
-import com.lcl.swiftlink.project.dto.resp.ShortLinkPageRespDTO;
+import com.lcl.swiftlink.project.dto.resp.*;
 import com.lcl.swiftlink.project.mq.producer.ShortLinkStatsSaveProducer;
 import com.lcl.swiftlink.project.service.ShortLinkService;
 import com.lcl.swiftlink.project.toolkit.HashUtil;
@@ -75,27 +76,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.time.Duration;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static com.lcl.swiftlink.project.common.constant.RedisKeyConstant.GOTO_IS_NULL_SHORT_LINK_KEY;
-import static com.lcl.swiftlink.project.common.constant.RedisKeyConstant.GOTO_SHORT_LINK_KEY;
-import static com.lcl.swiftlink.project.common.constant.RedisKeyConstant.LOCK_GID_UPDATE_KEY;
-import static com.lcl.swiftlink.project.common.constant.RedisKeyConstant.LOCK_GOTO_SHORT_LINK_KEY;
-import static com.lcl.swiftlink.project.common.constant.RedisKeyConstant.SHORT_LINK_CREATE_LOCK_KEY;
-import static com.lcl.swiftlink.project.common.constant.RedisKeyConstant.SHORT_LINK_STATS_UIP_KEY;
-import static com.lcl.swiftlink.project.common.constant.RedisKeyConstant.SHORT_LINK_STATS_UV_KEY;
+import static com.lcl.swiftlink.project.common.constant.RedisKeyConstant.*;
 
 /**
  * 短链接接口实现层
@@ -103,11 +89,12 @@ import static com.lcl.swiftlink.project.common.constant.RedisKeyConstant.SHORT_L
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLinkDO> implements ShortLinkService {
+public class SwiftLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLinkDO> implements ShortLinkService {
 
     private final RBloomFilter<String> shortUriCreateCachePenetrationBloomFilter;
     private final RBloomFilter<String> swiftUrlRedisBloomFilter;
     private final ShortLinkGotoMapper shortLinkGotoMapper;
+    private final SwiftLinkJumpMapper swiftLinkJumpMapper;
     private final StringRedisTemplate stringRedisTemplate;
     private final StringRedisTemplate swiftUrlStringRedisTemplate;
     private final RedissonClient redissonClient;
@@ -438,6 +425,127 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
         }
     }
 
+    /**
+     * 短网址跳转原始网址
+     * @param swiftUri
+     * @param servletRequest
+     * @param servletResponse
+     * @throws IOException
+     */
+    public void jumpOriginalLink(String swiftUri,ServletRequest servletRequest,ServletResponse servletResponse) throws IOException {
+        // 1. 构造完整短链接
+        String fullSwiftUrl = constructFullSwiftUrl(swiftUri, servletRequest);
+        // 2. 先查询缓存是否存在
+        String sourceUrl = swiftUrlStringRedisTemplate.opsForValue().get("swiftLink:jump:" + fullSwiftUrl);
+        if (hitDestiCache(servletRequest, servletResponse, sourceUrl)) return;
+        // 4. 若没查到，防止缓存穿透
+        // 4.1. 先查布隆过滤器
+        if (!swiftUrlRedisBloomFilter.contains(fullSwiftUrl)) {
+            // 4.1.1. 布隆过滤器判断不存在，则一定不存在
+            ((HttpServletResponse) servletResponse).sendRedirect("/page/missing");
+            return;
+        }
+        // 4.1.2. 布隆过滤器判断存在，未必真存在，可能存在误判，先查缓存是否有空值
+        String jumpNull = swiftUrlStringRedisTemplate.opsForValue().get("swiftLink:null:jump_to_" + fullSwiftUrl);
+        if (jumpNull!=null && !jumpNull.trim().isEmpty()){
+            // 查到缓存的空值
+            ((HttpServletResponse) servletResponse).sendRedirect("/page/missing");
+            return;
+        }
+        // 4.2. 查不到空对象，说明可能是存在的，进行缓存的构建
+        // 4.1.1. 获取分布式锁，且采用 dcl
+        RLock jumpLock = swiftLinkRedissonClient.getLock("swiftLink:jumpLock:" + sourceUrl);
+        jumpLock.lock();
+        // dcl，包括缓存击穿和缓存穿透
+        sourceUrl = swiftUrlStringRedisTemplate.opsForValue().get("swiftLink:jump:" + fullSwiftUrl);
+        if (hitDestiCache(servletRequest, servletResponse, sourceUrl)) return;
+        jumpNull = swiftUrlStringRedisTemplate.opsForValue().get("swiftLink:null:jump_to_" + fullSwiftUrl);
+        if (jumpNull!=null && !jumpNull.trim().isEmpty()){
+            // 查到缓存的空值
+            ((HttpServletResponse) servletResponse).sendRedirect("/page/missing");
+            return;
+        }
+        try {
+            if (processDatabaseQueryAndCache((HttpServletResponse) servletResponse, fullSwiftUrl)) return;
+            // 5.5. 进行监控
+            trackSwiftLinkAccess(sourceUrl,servletRequest,servletResponse);
+            // 5.6. 跳转
+            ((HttpServletResponse) servletResponse).sendRedirect(sourceUrl);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        } finally {
+            jumpLock.unlock();
+        }
+    }
+
+    /**
+     * 查询两个相关的数据库表并构建缓存
+     * @param servletResponse
+     * @param fullSwiftUrl
+     * @return
+     * @throws IOException
+     */
+    private boolean processDatabaseQueryAndCache(HttpServletResponse servletResponse, String fullSwiftUrl) throws IOException {
+        //  4.1.2. 查询数据库
+        QueryWrapper<SwiftLinkJumpDO> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("full_swift_url", fullSwiftUrl);
+        SwiftLinkJumpDO swiftLinkJumpDO = swiftLinkJumpMapper.selectOne(queryWrapper);
+        if (swiftLinkJumpDO==null) {
+            // 5.1. 数据库查不到，是缓存穿透问题，设置空对象然后跳转404
+            swiftUrlStringRedisTemplate.opsForValue().
+                    set("swiftLink:null:jump_to_" + fullSwiftUrl,"_",30,TimeUnit.MINUTES);
+            servletResponse.sendRedirect("/page/missing");
+            return true;
+        }
+        // 5.2. 数据库查到链接跳转表，还得查询链接表
+        QueryWrapper<ShortLinkDO> queryWrapperAnother = new QueryWrapper<>();
+        queryWrapperAnother.eq("gid",swiftLinkJumpDO.getGid())
+                        .eq("full_swift_url",swiftLinkJumpDO.getFullSwiftUrl())
+                                .eq("del_flag",0)
+                                        .eq("enable_status",0);
+//            ShortLinkDO shortLinkDO = baseMapper.selectOne(queryWrapperAnother);
+        ShortLinkDO swiftLinkDO = baseMapper.selectOne(queryWrapperAnother);
+        if (swiftLinkDO == null || (swiftLinkDO.getValidDate() != null && swiftLinkDO.getValidDate().before(new Date()))) {
+            // 5.3. 数据库查不到，是缓存穿透问题，或者已经过期，设置空对象然后跳转404
+            swiftUrlStringRedisTemplate.opsForValue().
+                    set("swiftLink:null:jump_to_" + fullSwiftUrl,"_",30,TimeUnit.MINUTES);
+            servletResponse.sendRedirect("/page/missing");
+            return true;
+        }
+        // 5.4. 数据库两个表都查得到，是缓存击穿，重建缓存
+        long leftTime = swiftLinkDO.getValidDate()==null? 2626560000L: DateUtil.between(new Date(),swiftLinkDO.getValidDate(), DateUnit.MS);
+        swiftUrlStringRedisTemplate.opsForValue()
+                .set("swiftLink:jump:" + fullSwiftUrl,
+                        swiftLinkDO.getSourceUrl(),
+                        leftTime,
+                        TimeUnit.MILLISECONDS);
+        return false;
+    }
+
+    /**
+     * 击中缓存数据
+     * @param servletRequest
+     * @param servletResponse
+     * @param sourceUrl
+     * @return
+     * @throws IOException
+     */
+    private boolean hitDestiCache(ServletRequest servletRequest, ServletResponse servletResponse, String sourceUrl) throws IOException {
+        if (sourceUrl !=null && !sourceUrl.trim().isEmpty()) {
+            // 3. 若查到了，则统计访问数据，然后跳转
+            trackSwiftLinkAccess(sourceUrl, servletRequest, servletResponse);
+            ((HttpServletResponse) servletResponse).sendRedirect(sourceUrl);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 构建完整短网址
+     * @param swiftUri
+     * @param servletRequest
+     * @return
+     */
     private String constructFullSwiftUrl(String swiftUri,ServletRequest servletRequest){
         // 1. 获取地址栏中输入的端口，即服务端口
         int port = servletRequest.getServerPort();

@@ -37,4 +37,11 @@ public class RBloomFilterConfiguration {
         cachePenetrationBloomFilter.tryInit(100000000L, 0.001);
         return cachePenetrationBloomFilter;
     }
+
+    @Bean
+    public RBloomFilter<String> swiftUrlRedisBloomFilter(RedissonClient redissonClient) {
+        RBloomFilter<String> swiftUrlBloomFilter = redissonClient.getBloomFilter("swiftUrlBloomFilter");
+        swiftUrlBloomFilter.tryInit(100000000L, 0.001);
+        return swiftUrlBloomFilter;
+    }
 }

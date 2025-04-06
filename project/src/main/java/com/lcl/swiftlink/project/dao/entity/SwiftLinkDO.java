@@ -35,10 +35,7 @@ import java.util.Date;
 @TableName("t_link")
 @NoArgsConstructor
 @AllArgsConstructor
-public class ShortLinkDO extends BaseDO {
-    public String getSourceUrl(){
-        return originUrl;
-    }
+public class SwiftLinkDO extends BaseDO {
 
     /**
      * id
@@ -53,17 +50,20 @@ public class ShortLinkDO extends BaseDO {
     /**
      * 短链接
      */
-    private String shortUri;
+    @TableField("short_uri")
+    private String swiftUri;
 
     /**
      * 完整短链接
      */
-    private String fullShortUrl;
+    @TableField("full_short_url")
+    private String fullSwiftUrl;
 
     /**
      * 原始链接
      */
-    private String originUrl;
+    @TableField("origin_url")
+    private String sourceUrl;
 
     /**
      * 点击量
