@@ -37,6 +37,12 @@ public class RBloomFilterConfiguration {
         cachePenetrationBloomFilter.tryInit(100000000L, 0.001);
         return cachePenetrationBloomFilter;
     }
+    @Bean
+    public RBloomFilter<String> registerRedisBloomFilter(RedissonClient redissonClient) {
+        RBloomFilter<String> redisBloomFilter = redissonClient.getBloomFilter("registerRedisBloomFilter");
+        redisBloomFilter.tryInit(100000000L, 0.001);
+        return redisBloomFilter;
+    }
 
     /**
      * 防止分组标识注册查询数据库的布隆过滤器

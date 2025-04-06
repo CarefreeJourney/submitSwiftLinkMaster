@@ -15,25 +15,15 @@
  * limitations under the License.
  */
 
-package com.lcl.swiftlink.admin.dao.entity;
+package com.lcl.swiftlink.admin.dto.req;
 
-import com.baomidou.mybatisplus.annotation.TableName;
-import com.lcl.swiftlink.admin.common.database.BaseDO;
-import lombok.Builder;
 import lombok.Data;
 
 /**
- * 用户持久层实体
+ * 用户注册请求参数
  */
 @Data
-@TableName("t_user")
-@Builder
-public class UserDO extends BaseDO {
-
-    /**
-     * id
-     */
-    private Long id;
+public class RegisterReqDTO {
 
     /**
      * 用户名
@@ -59,9 +49,4 @@ public class UserDO extends BaseDO {
      * 邮箱
      */
     private String mail;
-
-    /**
-     * 注销时间戳
-     */
-    private Long deletionTime;
 }
