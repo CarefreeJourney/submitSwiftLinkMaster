@@ -73,7 +73,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, UserDO> implements 
     private final RedissonClient redissonClient;
     private final StringRedisTemplate stringRedisTemplate;
     private final GroupService groupService;
-    private final Clock clock;
     private final LinkGroupService linkGroupService;
 
     @Override

@@ -27,12 +27,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lcl.swiftlink.project.common.biz.user.UserContext;
 import com.lcl.swiftlink.project.common.convention.exception.ServiceException;
-import com.lcl.swiftlink.project.dao.entity.GroupDO;
-import com.lcl.swiftlink.project.dao.entity.LinkAccessLogsDO;
-import com.lcl.swiftlink.project.dao.entity.LinkAccessStatsDO;
-import com.lcl.swiftlink.project.dao.entity.LinkDeviceStatsDO;
-import com.lcl.swiftlink.project.dao.entity.LinkLocaleStatsDO;
-import com.lcl.swiftlink.project.dao.entity.LinkNetworkStatsDO;
+import com.lcl.swiftlink.project.dao.entity.*;
 import com.lcl.swiftlink.project.dao.mapper.LinkGroupMapper;
 import com.lcl.swiftlink.project.dao.mapper.LinkAccessLogsMapper;
 import com.lcl.swiftlink.project.dao.mapper.LinkAccessStatsMapper;
@@ -515,10 +510,10 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
     public void checkGroupBelongToUser(String gid) throws ServiceException {
         String username = Optional.ofNullable(UserContext.getUsername())
                 .orElseThrow(() -> new ServiceException("用户未登录"));
-        LambdaQueryWrapper<GroupDO> queryWrapper = Wrappers.lambdaQuery(GroupDO.class)
-                .eq(GroupDO::getGid, gid)
-                .eq(GroupDO::getUsername, username);
-        List<GroupDO> groupDOList = linkGroupMapper.selectList(queryWrapper);
+        LambdaQueryWrapper<LinkGroupDO> queryWrapper = Wrappers.lambdaQuery(LinkGroupDO.class)
+                .eq(LinkGroupDO::getGid, gid)
+                .eq(LinkGroupDO::getUsername, username);
+        List<LinkGroupDO> groupDOList = linkGroupMapper.selectList(queryWrapper);
         if (CollUtil.isEmpty(groupDOList)) {
             throw new ServiceException("用户信息与分组标识不匹配");
         }

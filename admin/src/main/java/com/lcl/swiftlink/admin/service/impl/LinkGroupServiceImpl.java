@@ -65,7 +65,7 @@ public class LinkGroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> impl
 
     private final RBloomFilter<String> gidRegisterCachePenetrationBloomFilter;
     private final GroupUniqueMapper groupUniqueMapper;
-    private final ShortLinkActualRemoteService shortLinkActualRemoteService;
+    private final ShortLinkActualRemoteService swiftLinkActualRemoteService;
     private final RedissonClient redissonClient;
 
     @Value("${short-link.group.max-num}")
@@ -121,26 +121,26 @@ public class LinkGroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> impl
                 .eq(GroupDO::getUsername, UserContext.getUsername())
                 .orderByDesc(GroupDO::getSortOrder, GroupDO::getUpdateTime);
         List<GroupDO> groupDOList = baseMapper.selectList(queryWrapper);
-        Result<List<ShortLinkGroupCountQueryRespDTO>> listResult = shortLinkActualRemoteService
+        Result<List<ShortLinkGroupCountQueryRespDTO>> listResult = swiftLinkActualRemoteService
                 .listGroupShortLinkCount(groupDOList.stream().map(GroupDO::getGid).toList());
-        List<ShortLinkGroupRespDTO> shortLinkGroupRespDTOList = BeanUtil.copyToList(groupDOList, ShortLinkGroupRespDTO.class);
-        shortLinkGroupRespDTOList.forEach(each -> {
+        List<ShortLinkGroupRespDTO> swiftLinkGroupRespDTOList = BeanUtil.copyToList(groupDOList, ShortLinkGroupRespDTO.class);
+        swiftLinkGroupRespDTOList.forEach(each -> {
             Optional<ShortLinkGroupCountQueryRespDTO> first = listResult.getData().stream()
                     .filter(item -> Objects.equals(item.getGid(), each.getGid()))
                     .findFirst();
             first.ifPresent(item -> each.setShortLinkCount(first.get().getShortLinkCount()));
         });
-        return shortLinkGroupRespDTOList;
+        return swiftLinkGroupRespDTOList;
     }
 
     @Override
-    public void updateGroup(ShortLinkGroupUpdateReqDTO requestParam) {
+    public void updateGroup(ShortLinkGroupUpdateReqDTO shortLinkGroupUpdateReqDTO) {
         LambdaUpdateWrapper<GroupDO> updateWrapper = Wrappers.lambdaUpdate(GroupDO.class)
                 .eq(GroupDO::getUsername, UserContext.getUsername())
-                .eq(GroupDO::getGid, requestParam.getGid())
+                .eq(GroupDO::getGid, shortLinkGroupUpdateReqDTO.getGid())
                 .eq(GroupDO::getDelFlag, 0);
         GroupDO groupDO = new GroupDO();
-        groupDO.setName(requestParam.getName());
+        groupDO.setName(shortLinkGroupUpdateReqDTO.getName());
         baseMapper.update(groupDO, updateWrapper);
     }
 
@@ -156,8 +156,8 @@ public class LinkGroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> impl
     }
 
     @Override
-    public void sortGroup(List<ShortLinkGroupSortReqDTO> requestParam) {
-        requestParam.forEach(each -> {
+    public void sortGroup(List<ShortLinkGroupSortReqDTO> shortLinkGroupSortReqDTOList) {
+        shortLinkGroupSortReqDTOList.forEach(each -> {
             GroupDO groupDO = GroupDO.builder()
                     .sortOrder(each.getSortOrder())
                     .build();
